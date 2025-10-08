@@ -194,9 +194,9 @@ public class NorcalSNMPDriverModule {
     	pdu.addAll(getBindings(oids));
     	UsmUser usr = new UsmUser(
     			new OctetString(user),
-    			AuthMD5.ID,
+    			authProtocol,
     			new OctetString(pass),
-    			PrivDES.ID,
+    			privProtocol,
     			new OctetString(pass)
 		);
     	return getV3(pdu, target, usr, user, authProtocol);
