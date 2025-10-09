@@ -51,3 +51,6 @@ readme.md
 
 # Ignore the Target Folders
 **/target
+norcal-snmp-driver/gradle.properties
+norcal-snmp-driver/ignition-snmp-ks.jks
+norcal-snmp-driver/snmp-ks.p7b

@@ -14,7 +14,7 @@ plugins {
 val sdk_version by extra("8.1.20")
 
 allprojects {
-    version = "1.1.0"
+    version = "1.1.1"
 }
 
 ignitionModule {
@@ -95,5 +95,6 @@ ignitionModule {
      * Optional unsigned modl settings. If true, modl signing will be skipped. This is not for production and should
      * be used merely for development testing
      */
-    skipModlSigning.set(true)
+    skipModlSigning.set(false)
+
 }
