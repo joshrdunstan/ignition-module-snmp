@@ -194,9 +194,9 @@ public class NorcalSNMPDriverModule {
     	pdu.addAll(getBindings(oids));
     	UsmUser usr = new UsmUser(
     			new OctetString(user),
-    			AuthMD5.ID,
+                authProtocol,
     			new OctetString(pass),
-    			PrivDES.ID,
+                privProtocol,
     			new OctetString(pass)
 		);
     	return getV3(pdu, target, usr, user, authProtocol);
@@ -317,7 +317,7 @@ public class NorcalSNMPDriverModule {
             PDU response = respEvent.getResponse();
 
             if (response == null) {
-                res.add("Error: no Response");
+                res.add("Error: No Response from device (get)");
             } else {
                 for (int i = 0; i < response.size(); i++) {
                     VariableBinding vb = response.get(i);
@@ -366,18 +366,13 @@ public class NorcalSNMPDriverModule {
         	
         	snmp.listen();
         	
-        	/*snmp.getUSM().addUser(
-        			new OctetString(username),
-        			usr
-			);*/
-        	
         	pdu.setType(PDU.GET);
         	
         	ResponseEvent respEvent = snmp.send(pdu, target);
         	PDU response = respEvent.getResponse();
         	
             if (response == null) {
-                res.add("Error: no Response");
+                res.add("Error: No Response from device (getV3)");
             } else {
                 for (int i = 0; i < response.size(); i++) {
                     VariableBinding vb = response.get(i);
