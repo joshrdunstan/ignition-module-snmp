@@ -1,0 +1,63 @@
+{
+    "moduleId": "net.norcalcontrols.driver.snmp.NorcalSNMPDriver",
+    "moduleName": "Norcal SNMP Driver",
+    "moduleDescription": "Ignition module designed to facilitate SNMP walk and get operations across multiple versions. ",
+    "version": "1.1.1",
+    "checksum": {
+        "checksum": "e9865378405d7f0dad345abb5e20d2bd353d062cf3a231087457886fc4365d14",
+        "algorithm": "SHA256"
+    },
+    "fileName": "Norcal-SNMP-Driver.modl",
+    "fileSize": 622570,
+    "artifacts": {
+        ":client": {
+            "projectPath": ":client",
+            "projectName": "client",
+            "scope": "CD",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:client:1.1.1",
+                    "jarName": "client-1.1.1.jar"
+                }
+            ]
+        },
+        ":common": {
+            "projectPath": ":common",
+            "projectName": "common",
+            "scope": "CDG",
+            "artifacts": [
+                {
+                    "id": "snmp4j-3.7.8.jar (org.snmp4j:snmp4j:3.7.8)",
+                    "jarName": "snmp4j-3.7.8.jar"
+                },
+                {
+                    "id": "norcal-snmp-driver:common:1.1.1",
+                    "jarName": "common-1.1.1.jar"
+                }
+            ]
+        },
+        ":designer": {
+            "projectPath": ":designer",
+            "projectName": "designer",
+            "scope": "D",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:designer:1.1.1",
+                    "jarName": "designer-1.1.1.jar"
+                }
+            ]
+        },
+        ":gateway": {
+            "projectPath": ":gateway",
+            "projectName": "gateway",
+            "scope": "G",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:gateway:1.1.1",
+                    "jarName": "gateway-1.1.1.jar"
+                }
+            ]
+        }
+    },
+    "metaInfo": {}
+}

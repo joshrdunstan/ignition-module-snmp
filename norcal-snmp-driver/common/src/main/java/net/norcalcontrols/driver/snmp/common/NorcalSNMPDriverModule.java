@@ -168,12 +168,23 @@ public class NorcalSNMPDriverModule {
         UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
         OID authProtocol = getAuthProtocol(authProt);
         OID privProtocol = getPrivProtocol(privProt);
+        
+        // Extract privacy key from params, default to auth password
+        String privKey = pass;
+        for (String param : params) {
+        	String[] value = param.split("=");
+        	if (value.length == 2 && value[0].equalsIgnoreCase("privKey")) {
+        		privKey = value[1];
+        		break;
+        	}
+        }
+        
     	UsmUser usr = new UsmUser(
     			new OctetString(user),
     			authProtocol,
     			new OctetString(pass),
     			privProtocol,
-    			new OctetString(pass)
+    			new OctetString(privKey)
 		);
         return walkV3(target, new OID(startOID), usr, user, authProtocol);
     }
@@ -189,15 +200,26 @@ public class NorcalSNMPDriverModule {
     public static String[] snmpGetV3(String ip, int port, String[] oids, int authLevel, String user, String pass, int authProt, int privProt, String[] params) {
     	UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
     	OID authProtocol = getAuthProtocol(authProt);
-    	OID privProtocol = getPrivProtocol(privProt);  
+    	OID privProtocol = getPrivProtocol(privProt);
+    	
+    	// Extract privacy key from params, default to auth password
+    	String privKey = pass;
+    	for (String param : params) {
+    		String[] value = param.split("=");
+    		if (value.length == 2 && value[0].equalsIgnoreCase("privKey")) {
+    			privKey = value[1];
+    			break;
+    		}
+    	}
+    	
     	PDU pdu = new ScopedPDU();
     	pdu.addAll(getBindings(oids));
     	UsmUser usr = new UsmUser(
     			new OctetString(user),
-                authProtocol,
+    			authProtocol,
     			new OctetString(pass),
-                privProtocol,
-    			new OctetString(pass)
+    			privProtocol,
+    			new OctetString(privKey)
 		);
     	return getV3(pdu, target, usr, user, authProtocol);
     }
