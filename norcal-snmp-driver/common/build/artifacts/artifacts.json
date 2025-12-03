@@ -1,0 +1,15 @@
+{
+    "projectPath": ":common",
+    "projectName": "common",
+    "scope": "CDG",
+    "artifacts": [
+        {
+            "id": "snmp4j-3.7.8.jar (org.snmp4j:snmp4j:3.7.8)",
+            "jarName": "snmp4j-3.7.8.jar"
+        },
+        {
+            "id": "norcal-snmp-driver:common:1.2.11",
+            "jarName": "common-1.2.11.jar"
+        }
+    ]
+}

@@ -1,0 +1,63 @@
+{
+    "moduleId": "net.norcalcontrols.driver.snmp.NorcalSNMPDriver",
+    "moduleName": "Norcal SNMP Driver",
+    "moduleDescription": "Ignition module designed to facilitate SNMP walk and get operations across multiple versions. ",
+    "version": "1.2.11",
+    "checksum": {
+        "checksum": "dbeda9c980d65b8bb9a24d240e8ee5aad7405e319d1577245fb7ed155cc4faf4",
+        "algorithm": "SHA256"
+    },
+    "fileName": "Norcal-SNMP-Driver.modl",
+    "fileSize": 623467,
+    "artifacts": {
+        ":client": {
+            "projectPath": ":client",
+            "projectName": "client",
+            "scope": "CD",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:client:1.2.11",
+                    "jarName": "client-1.2.11.jar"
+                }
+            ]
+        },
+        ":common": {
+            "projectPath": ":common",
+            "projectName": "common",
+            "scope": "CDG",
+            "artifacts": [
+                {
+                    "id": "snmp4j-3.7.8.jar (org.snmp4j:snmp4j:3.7.8)",
+                    "jarName": "snmp4j-3.7.8.jar"
+                },
+                {
+                    "id": "norcal-snmp-driver:common:1.2.11",
+                    "jarName": "common-1.2.11.jar"
+                }
+            ]
+        },
+        ":designer": {
+            "projectPath": ":designer",
+            "projectName": "designer",
+            "scope": "D",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:designer:1.2.11",
+                    "jarName": "designer-1.2.11.jar"
+                }
+            ]
+        },
+        ":gateway": {
+            "projectPath": ":gateway",
+            "projectName": "gateway",
+            "scope": "G",
+            "artifacts": [
+                {
+                    "id": "norcal-snmp-driver:gateway:1.2.11",
+                    "jarName": "gateway-1.2.11.jar"
+                }
+            ]
+        }
+    },
+    "metaInfo": {}
+}

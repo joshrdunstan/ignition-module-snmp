@@ -9,7 +9,7 @@ public class ClientScriptModule extends AbstractScriptModule {
 	
 	public ClientScriptModule() {
 		rpc = ModuleRPCFactory.create(
-			"norcalcontrol.net.driver.snmp-1.1.0",
+			"net.norcalcontrols.driver.snmp.NorcalSNMPDriver",
 			FunctionInterface.class
 		);
 	}

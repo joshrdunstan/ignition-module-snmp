@@ -1,0 +1,11 @@
+{
+    "projectPath": ":gateway",
+    "projectName": "gateway",
+    "scope": "G",
+    "artifacts": [
+        {
+            "id": "norcal-snmp-driver:gateway:1.2.11",
+            "jarName": "gateway-1.2.11.jar"
+        }
+    ]
+}

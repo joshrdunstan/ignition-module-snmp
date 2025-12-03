@@ -1,0 +1,11 @@
+{
+    "projectPath": ":client",
+    "projectName": "client",
+    "scope": "CD",
+    "artifacts": [
+        {
+            "id": "norcal-snmp-driver:client:1.2.11",
+            "jarName": "client-1.2.11.jar"
+        }
+    ]
+}

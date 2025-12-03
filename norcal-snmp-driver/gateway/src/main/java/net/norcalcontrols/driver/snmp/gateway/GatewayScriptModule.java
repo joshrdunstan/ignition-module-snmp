@@ -12,7 +12,7 @@ public class GatewayScriptModule extends AbstractScriptModule {
     
     @Override
     protected String[] getImplV3(String addr, int port, String[] OIDS, int authLevel, String user, String pass, int authProt, int privProt, String... params) {
-    	return NorcalSNMPDriverModule.snmpGetV3(addr, port, OIDS, authLevel, user, pass, authProt, authProt, params);
+    	return NorcalSNMPDriverModule.snmpGetV3(addr, port, OIDS, authLevel, user, pass, authProt, privProt, params);
     }
 
     @Override
@@ -22,6 +22,6 @@ public class GatewayScriptModule extends AbstractScriptModule {
     
     @Override
     protected String[] walkImplV3(String addr, int port, String startOID, int authLevel, String user, String pass, int authProt, int privProt, String... params) {
-    	return NorcalSNMPDriverModule.snmpWalkV3(addr, port, startOID, authLevel, user, pass, authProt, authProt, params);
+    	return NorcalSNMPDriverModule.snmpWalkV3(addr, port, startOID, authLevel, user, pass, authProt, privProt, params);
     }
 }

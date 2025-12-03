@@ -1,0 +1,11 @@
+{
+    "projectPath": ":designer",
+    "projectName": "designer",
+    "scope": "D",
+    "artifacts": [
+        {
+            "id": "norcal-snmp-driver:designer:1.2.11",
+            "jarName": "designer-1.2.11.jar"
+        }
+    ]
+}
