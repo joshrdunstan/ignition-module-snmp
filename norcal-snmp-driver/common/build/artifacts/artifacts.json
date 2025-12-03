@@ -8,8 +8,8 @@
             "jarName": "snmp4j-3.7.8.jar"
         },
         {
-            "id": "norcal-snmp-driver:common:1.1.1",
-            "jarName": "common-1.1.1.jar"
+            "id": "norcal-snmp-driver:common:1.2.11",
+            "jarName": "common-1.2.11.jar"
         }
     ]
 }

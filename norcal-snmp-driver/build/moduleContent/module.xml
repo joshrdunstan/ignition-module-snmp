@@ -3,7 +3,7 @@
 	<module>
 		<name>Norcal SNMP Driver</name>
 		<id>net.norcalcontrols.driver.snmp.NorcalSNMPDriver</id>
-		<version>1.2.0</version>
+		<version>1.2.11</version>
 		<description>Ignition module designed to facilitate SNMP walk and get operations across multiple versions. </description>
 		<requiredIgnitionVersion>8.1.11</requiredIgnitionVersion>
 		<freeModule>false</freeModule>
@@ -11,10 +11,10 @@
 		<hook scope="C">net.norcalcontrols.driver.snmp.client.NorcalSNMPDriverClientHook</hook>
 		<hook scope="D">net.norcalcontrols.driver.snmp.designer.NorcalSNMPDriverDesignerHook</hook>
 		<requiredFrameworkVersion>8</requiredFrameworkVersion>
-		<jar scope="CD">client-1.1.1.jar</jar>
+		<jar scope="CD">client-1.2.11.jar</jar>
 		<jar scope="CDG">snmp4j-3.7.8.jar</jar>
-		<jar scope="CDG">common-1.1.1.jar</jar>
-		<jar scope="D">designer-1.1.1.jar</jar>
-		<jar scope="G">gateway-1.1.1.jar</jar>
+		<jar scope="CDG">common-1.2.11.jar</jar>
+		<jar scope="D">designer-1.2.11.jar</jar>
+		<jar scope="G">gateway-1.2.11.jar</jar>
 	</module>
 </modules>
