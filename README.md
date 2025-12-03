@@ -5,6 +5,78 @@ A module that allows the user to use SNMP operations in Ignition scripts.
 
 This module has been migrated to Gradle from Maven, so the namespace has changed.
 
+## Programmer's Guide
+
+### Architecture Overview
+- **Scopes:** The Gradle build (`build.gradle.kts`) registers gateway (`G`), designer (`D`), and Vision client (`C`) hooks under the shared module ID `net.norcalcontrols.driver.snmp.NorcalSNMPDriver`. Script-facing logic lives in `common`, while `gateway`, `client`, and `designer` supply scope-specific hooks.
+- **Script namespace:** Each hook (`NorcalSNMPDriverGatewayHook`, `NorcalSNMPDriverClientHook`, `NorcalSNMPDriverDesignerHook`) exposes an instance of `GatewayScriptModule`/`ClientScriptModule`, binding the Python API to `system.snmp.*`. All scripting ultimately routes through `NorcalSNMPDriverModule` in the common scope, which wraps SNMP4J.
+- **RPC boundary:** In Vision clients the concrete script module is proxied via `ModuleRPCFactory` (`ClientScriptModule`), so long-running calls execute on the gateway. Gateway-scoped scripts invoke SNMP directly.
+
+### Build & Packaging Workflow
+1. **Prerequisites:** JDK 11 (matching Ignition 8.1), internet access to reach the Inductive Automation Maven repository, and the Gradle wrapper included in this repo—no additional tooling required.
+2. **Assemble the module:** From `norcal-snmp-driver/` run `./gradlew clean modl`. The `modl` task creates `build/distributions/Norcal-SNMP-Driver.modl` alongside any aggregated docs you configure.
+3. **Versioning:** Update `version` in `build.gradle.kts` (propagates to `moduleVersion`) before building. Adjust the hook metadata or module description there as well.
+4. **Signing (optional):** The build currently signs the `.modl`. Set `skipModlSigning.set(true)` in `build.gradle.kts` only for local debugging; production gateways require a signed artifact.
+
+### Installing or Updating
+1. Upload `Norcal-SNMP-Driver.modl` through the Ignition Gateway Web UI (`Config → Modules → Install or Upgrade`) or drop it into `<Ignition>/data/modules` and restart.
+2. After installation, confirm the module shows as **Running** on the Gateway Status page. The `system.snmp` namespace then becomes available in gateway/designer/client script consoles.
+3. When upgrading, first disable any gateway event scripts using the module to avoid interruptions, then install the new `.modl`, and finally re-enable/validate your scripts.
+
+### Script API Quickstart
+Use any Ignition script context (gateway events, tag change scripts, Perspective, Vision, etc.).
+
+```python
+# One-shot read
+values = system.snmp.get("192.168.1.10", 161, ["1.3.6.1.2.1.1.5.0"], "public")
+
+# Secure walk (authPriv using SHA-512 + AES256)
+rows = system.snmp.walkV3(
+    "192.168.1.20", 161, "1.3.6.1.2.1.1",
+    3, "snmpUser", "authPass!", 6, 4,
+    "timeout=5000", "privKey=privPass!"
+)
+```
+
+All four functions share the same calling pattern:
+
+| Function | Scope | Core parameters | Returns |
+|----------|-------|-----------------|---------|
+| `system.snmp.get` | v1/v2c | `address`, `port`, list of OIDs, community, optional key-value strings | List of scalar values (strings) |
+| `system.snmp.walk` | v1/v2c | `address`, `port`, `startOID`, community, optional key-value strings | List of `"oid = value"` strings |
+| `system.snmp.getV3` | v3 | `address`, `port`, list of OIDs, `authLevel`, `user`, `pass`, `authProt`, `privProt`, options | List of scalar values |
+| `system.snmp.walkV3` | v3 | `address`, `port`, `startOID`, `authLevel`, `user`, `pass`, `authProt`, `privProt`, options | List of `"oid = value"` strings |
+
+Optional parameters (e.g., `timeout=5000`, `retry=2`, `privKey=...`) are passed as additional string arguments and are parsed inside `NorcalSNMPDriverModule`.
+
+### Working with SNMPv3
+- **Security levels:** Match the `authLevel` integer to your device profile (1 = `noAuthNoPriv`, 2 = `authNoPriv`, 3 = `authPriv`). Regardless of level, the API signature requires `authProt` and `privProt`; they are ignored when not applicable.
+- **Protocol enums:** `authProt` maps to SNMP4J `Auth*` implementations; values 3–6 cover SHA-2 variants with 512-bit default. `privProt` selects DES or AES (128/192/256).
+- **Privacy keys:** Include `'privKey=<value>'` when the device expects a privacy password distinct from the auth password; otherwise the auth password is reused.
+- **User provisioning:** Each call constructs a transient USM user via `UsmUser`, so no extra gateway configuration is needed. Ensure the remote agent allows engine ID discovery (automatic in `walkV3`/`getV3`).
+
+### Integrating with Ignition Projects
+- **Tags:** Use tag event scripts to poll OIDs and write values back to tags. Remember to convert strings to native types (e.g., `system.util.toInt`) when storing numeric results.
+- **Gateway events:** Gateway timer scripts can batch SNMP reads and publish to MQTT, databases, or alarm pipelines. Handle throttling manually to avoid overwhelming low-powered agents.
+- **Perspective/Vision:** Because Vision clients route calls through RPC (`ClientScriptModule`), long walks still execute on the gateway. Provide user feedback (spinner, message) while waiting for large trees.
+- **Error handling:** All methods return strings even on failure, prefixed with error codes (e.g., `[G001]`). Inspect the first element before acting on the data.
+
+### Observability and Troubleshooting
+- Enable debug logging for `net.norcalcontrols.driver.snmp.gateway` via the Gateway log configuration to view `startup()`/`shutdown()` messages and SNMP debug info.
+- Use the existing **Error Codes** and **Troubleshooting** sections below to map responses to actionable steps.
+- When scripting, wrap calls in `try/except` so unresponsive devices do not block event threads:
+
+```python
+try:
+    result = system.snmp.get("10.0.0.5", 161, ["1.3.6.1.2.1.1.3.0"], "public", "timeout=8000")
+    if result and not result[0].startswith("[G"):
+        system.tag.writeBlocking(["[default]Device/Uptime"], [int(result[0])])
+    else:
+        system.util.getLogger("snmp").warn("Device offline: %s" % result)
+except Exception as ex:
+    system.util.getLogger("snmp").error("Unhandled SNMP error", ex)
+```
+
 ## Available Operations
 
 Four operations are available: SNMP Get, GetV3, Walk and WalkV3.
