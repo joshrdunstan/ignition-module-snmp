@@ -1,8 +1,8 @@
 package net.norcalcontrols.driver.snmp.common;
 
 import com.inductiveautomation.ignition.common.BundleUtil;
+import com.inductiveautomation.ignition.common.script.hints.JythonElement;
 import com.inductiveautomation.ignition.common.script.hints.ScriptArg;
-import com.inductiveautomation.ignition.common.script.hints.ScriptFunction;
 
 public abstract class AbstractScriptModule implements FunctionInterface {
 
@@ -14,8 +14,7 @@ public abstract class AbstractScriptModule implements FunctionInterface {
         );
     }
 
-    @Override
-    @ScriptFunction
+    @JythonElement(docBundlePrefix = "AbstractScriptModule")
     public String[] get(
             @ScriptArg("address") String addr,
             @ScriptArg("port") int port,
@@ -26,9 +25,8 @@ public abstract class AbstractScriptModule implements FunctionInterface {
     }
 
     protected abstract String[] getImpl(String addr, int port, String[] OIDS, String... params);
-    
-    @Override
-    @ScriptFunction
+
+    @JythonElement(docBundlePrefix = "AbstractScriptModule")
     public String[] getV3(
     		@ScriptArg("address") String addr,
     		@ScriptArg("port") int port,
@@ -43,10 +41,9 @@ public abstract class AbstractScriptModule implements FunctionInterface {
     	return NorcalSNMPDriverModule.snmpGetV3(addr, port, OIDS, authLevel, user, pass, authProt, privProt, params);
     }
     
-    protected abstract String[] getImplV3(String addr, int port, String[] OIDS, int authLevel, String user, String pass, int authProt, int privProt, String... params); 
-    
-    @Override
-    @ScriptFunction
+    protected abstract String[] getImplV3(String addr, int port, String[] OIDS, int authLevel, String user, String pass, int authProt, int privProt, String... params);
+
+    @JythonElement(docBundlePrefix = "AbstractScriptModule")
     public String[] walk(
     		@ScriptArg("address") String addr,
     		@ScriptArg("port") int port,
@@ -57,9 +54,8 @@ public abstract class AbstractScriptModule implements FunctionInterface {
     }
     
     protected abstract String[] walkImpl(String addr, int port, String startOID, String... params);
-    
-    @Override
-    @ScriptFunction
+
+    @JythonElement(docBundlePrefix = "AbstractScriptModule")
     public String[] walkV3(
     		@ScriptArg("address") String addr,
     		@ScriptArg("port") int port,
