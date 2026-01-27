@@ -3,11 +3,14 @@ package net.norcalcontrols.driver.snmp.gateway;
 import com.inductiveautomation.ignition.common.licensing.LicenseState;
 import com.inductiveautomation.ignition.common.script.ScriptManager;
 import com.inductiveautomation.ignition.common.script.hints.PropertiesFileDocProvider;
-import com.inductiveautomation.ignition.gateway.clientcomm.ClientReqSession;
 import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
+import com.inductiveautomation.ignition.gateway.rpc.GatewayRpcImplementation;
+import net.norcalcontrols.driver.snmp.common.FunctionInterface;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Optional;
 
 public class NorcalSNMPDriverGatewayHook extends AbstractGatewayModuleHook {
 
@@ -46,7 +49,10 @@ public class NorcalSNMPDriverGatewayHook extends AbstractGatewayModuleHook {
     }
 
     @Override
-    public Object getRPCHandler(ClientReqSession session, String projectName) {
-        return scriptModule;
+    public Optional<GatewayRpcImplementation> getRpcImplementation() {
+        return Optional.of(GatewayRpcImplementation.of(
+                FunctionInterface.SERIALIZER,
+                new FunctionInterfaceImpl() {}
+        ));
     }
 }

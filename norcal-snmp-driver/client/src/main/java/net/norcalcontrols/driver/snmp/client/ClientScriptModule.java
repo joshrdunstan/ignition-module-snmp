@@ -2,17 +2,15 @@ package net.norcalcontrols.driver.snmp.client;
 
 import net.norcalcontrols.driver.snmp.common.AbstractScriptModule;
 import net.norcalcontrols.driver.snmp.common.FunctionInterface;
-import com.inductiveautomation.ignition.client.gateway_interface.ModuleRPCFactory;
+import com.inductiveautomation.ignition.client.gateway_interface.GatewayConnection;
 
 public class ClientScriptModule extends AbstractScriptModule {
-	private final FunctionInterface rpc;
-	
-	public ClientScriptModule() {
-		rpc = ModuleRPCFactory.create(
-			"net.norcalcontrols.driver.snmp.NorcalSNMPDriver",
-			FunctionInterface.class
-		);
-	}
+
+    private static final FunctionInterface rpc = GatewayConnection.getRpcInterface(
+            FunctionInterface.SERIALIZER,
+            "net.norcalcontrols.driver.snmp.NorcalSNMPDriver",
+            FunctionInterface.class
+    );
     
     @Override
     protected String[] getImpl(String addr, int port, String[] OIDS, String... params){
