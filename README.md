@@ -3,6 +3,8 @@ A module that allows the user to use SNMP operations in Ignition scripts.
 
 **Version:** 1.2.11
 
+<a href="https://www.buymeacoffee.com/joshrd" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+
 This module has been migrated to Gradle from Maven, so the namespace has changed.
 
 ## Available Operations
