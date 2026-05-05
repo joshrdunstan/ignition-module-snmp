@@ -7,6 +7,7 @@ import com.inductiveautomation.ignition.gateway.model.AbstractGatewayModuleHook;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
 import com.inductiveautomation.ignition.gateway.rpc.GatewayRpcImplementation;
 import net.norcalcontrols.driver.snmp.common.FunctionInterface;
+import net.norcalcontrols.driver.snmp.common.NorcalSNMPDriverModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,6 +32,7 @@ public class NorcalSNMPDriverGatewayHook extends AbstractGatewayModuleHook {
     @Override
     public void shutdown() {
         logger.info("shutdown()");
+        NorcalSNMPDriverModule.shutdown();
     }
 
     @Override
