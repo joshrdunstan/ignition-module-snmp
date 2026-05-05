@@ -363,8 +363,10 @@ public class NorcalSNMPDriverModule {
                     	results.add("[W001] Error: " + event.getErrorMessage());
                     } else {
                         VariableBinding[] varBindings = event.getVariableBindings();
-                        for (VariableBinding varBinding : varBindings) {
-                            results.add(varBinding.toString());
+                        if (varBindings != null) {
+                            for (VariableBinding varBinding : varBindings) {
+                                results.add(varBinding.toString());
+                            }
                         }
                     }
                 }
