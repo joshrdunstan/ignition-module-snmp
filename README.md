@@ -1,11 +1,12 @@
-# Snmp-Ignition-Module
-A module that allows the user to use SNMP operations in Ignition scripts.
+# Snmp-Ignition-Module (cursorSNMP)
 
-**Version:** 1.2.11
+Ignition module **cursorSNMP** exposes SNMP get and walk helpers in scripts as `system.snmp.*`.
+
+**Version:** 2.0.0
 
 <a href="https://www.buymeacoffee.com/joshrd" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
 
-This module has been migrated to Gradle from Maven, so the namespace has changed.
+The built module id is `io.cursor.snmp.CursorSNMP` (`.modl` file `cursorSNMP.modl`). Upgrading from older Norcal builds requires uninstalling the old module first because the module id changed.
 
 ## Available Operations
 
