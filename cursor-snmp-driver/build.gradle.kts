@@ -38,7 +38,7 @@ ignitionModule {
      */
     moduleVersion.set("${project.version}")
 
-    moduleDescription.set("Ignition module designed to facilitate SNMP walk and get operations across multiple versions. ")
+    moduleDescription.set("cursorSNMP: SNMP get and walk helpers for Ignition scripts (v1/v2c and v3).")
 
     /*
      * Minimum version of Ignition required for the module to function correctly.  This typically won't change over
