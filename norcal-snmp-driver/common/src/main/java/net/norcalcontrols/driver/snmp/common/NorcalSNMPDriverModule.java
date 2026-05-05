@@ -10,7 +10,6 @@ package net.norcalcontrols.driver.snmp.common;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Dictionary;
 import java.util.List;
 
 import org.snmp4j.CommunityTarget;
@@ -39,11 +38,9 @@ import org.snmp4j.security.USM;
 import org.snmp4j.security.UsmUser;
 import org.snmp4j.smi.Address;
 import org.snmp4j.smi.GenericAddress;
-import org.snmp4j.smi.Integer32;
 import org.snmp4j.smi.OID;
 import org.snmp4j.smi.OctetString;
 import org.snmp4j.smi.VariableBinding;
-import org.snmp4j.TransportMapping;
 import org.snmp4j.transport.DefaultUdpTransportMapping;
 import org.snmp4j.util.DefaultPDUFactory;
 import org.snmp4j.util.TreeEvent;
@@ -57,6 +54,71 @@ public class NorcalSNMPDriverModule {
     public static final int DEFAULT_RETRY = 1;
     public static final int DEFAULT_AUTH_LVL = SecurityLevel.NOAUTH_NOPRIV;
 
+    /**
+     * SNMP4j registers v3 security state in process-wide singletons. Concurrent script calls
+     * without coordination leak USM entries and corrupt shared protocol tables; serialize v3.
+     */
+    private static final Object SNMP_V3_LOCK = new Object();
+
+    private static void applyCommunityTargetOptions(CommunityTarget target, String[] params) {
+        if (params == null) {
+            return;
+        }
+        for (String param : params) {
+            if (param == null || param.isEmpty()) {
+                continue;
+            }
+            int eq = param.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String key = param.substring(0, eq).trim();
+            String val = param.substring(eq + 1).trim();
+            if (val.isEmpty()) {
+                continue;
+            }
+            try {
+                if (key.equalsIgnoreCase("version")) {
+                    target.setVersion(getVersion(val));
+                } else if (key.equalsIgnoreCase("timeout")) {
+                    target.setTimeout(Long.parseLong(val));
+                } else if (key.equalsIgnoreCase("retry")) {
+                    target.setRetries(Integer.parseInt(val));
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed numeric options so the request still uses defaults.
+            }
+        }
+    }
+
+    private static void applyUserTargetOptions(UserTarget target, String[] params) {
+        if (params == null) {
+            return;
+        }
+        for (String param : params) {
+            if (param == null || param.isEmpty()) {
+                continue;
+            }
+            int eq = param.indexOf('=');
+            if (eq <= 0) {
+                continue;
+            }
+            String key = param.substring(0, eq).trim();
+            String val = param.substring(eq + 1).trim();
+            if (val.isEmpty()) {
+                continue;
+            }
+            try {
+                if (key.equalsIgnoreCase("timeout")) {
+                    target.setTimeout(Long.parseLong(val));
+                } else if (key.equalsIgnoreCase("retry")) {
+                    target.setRetries(Integer.parseInt(val));
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+    }
+
     public static CommunityTarget createDefault(String ip, String community, int port, String[] params) {
         Address address = GenericAddress.parse(DEFAULT_PROTOCOL + ":" + ip + "/" + port);
         CommunityTarget target = new CommunityTarget();
@@ -67,16 +129,7 @@ public class NorcalSNMPDriverModule {
         target.setTimeout(DEFAULT_TIMEOUT);
         target.setRetries(DEFAULT_RETRY);
 
-        for(String param : params) {
-            String[] value = param.split("=");
-            if(value[0].equalsIgnoreCase("version")){
-                target.setVersion(getVersion(value[1]));
-            } else if(value[0].equalsIgnoreCase("timeout")){
-                target.setTimeout(Integer.parseInt(value[1]));
-            } else if(value[0].equalsIgnoreCase("retry")){
-                target.setRetries(Integer.parseInt(value[1]));
-            }
-        }
+        applyCommunityTargetOptions(target, params);
         return target;
     }
     
@@ -89,17 +142,8 @@ public class NorcalSNMPDriverModule {
     	target.setRetries(DEFAULT_RETRY);
     	target.setSecurityLevel(getAuthLevel(authLevel));
     	target.setSecurityName(new OctetString(user));
-    	
-    	
-    	for(String param : params) {
-    		String[] value = param.split("=");
-    		if(value[0].equalsIgnoreCase("timeout")) {
-                target.setTimeout(Integer.parseInt(value[1]));
-            } else if(value[0].equalsIgnoreCase("retry")){
-                target.setRetries(Integer.parseInt(value[1]));
-            }
-    	}
-    	
+
+    	applyUserTargetOptions(target, params);
     	return target;
     }
     
@@ -160,6 +204,9 @@ public class NorcalSNMPDriverModule {
     }
     
     public static String[] snmpWalk(String ip, int port, String startOID, String[] params) {
+        if (params == null || params.length == 0 || params[0] == null) {
+            return new String[] { "[W000] Error: community string required as first parameter" };
+        }
         String community = params[0];
         CommunityTarget target = createDefault(ip, community, port, params);
         return walk(target, new OID(startOID));
@@ -172,12 +219,17 @@ public class NorcalSNMPDriverModule {
         
         // Extract privacy key from params, default to auth password
         String privKey = pass;
-        for (String param : params) {
-        	String[] value = param.split("=");
-        	if (value.length == 2 && value[0].equalsIgnoreCase("privKey")) {
-        		privKey = value[1];
-        		break;
-        	}
+        if (params != null) {
+            for (String param : params) {
+                if (param == null) {
+                    continue;
+                }
+                int eq = param.indexOf('=');
+                if (eq > 0 && param.substring(0, eq).trim().equalsIgnoreCase("privKey")) {
+                    privKey = param.substring(eq + 1);
+                    break;
+                }
+            }
         }
         
         // Create UsmUser based on security level
@@ -213,7 +265,10 @@ public class NorcalSNMPDriverModule {
         return walkV3(target, new OID(startOID), usr, user, authProtocol);
     }
 
-    public static String[] snmpGet(String ip, int port, String[] oids, String[] params) { /// if anyone knows how to get rid of the first item from an array please let me know
+    public static String[] snmpGet(String ip, int port, String[] oids, String[] params) {
+        if (params == null || params.length == 0 || params[0] == null) {
+            return new String[] { "[G000] Error: community string required as first parameter" };
+        }
     	String community = params[0];
         CommunityTarget target = createDefault(ip, community, port, params);
         PDU pdu = new PDU();
@@ -228,11 +283,16 @@ public class NorcalSNMPDriverModule {
     	
     	// Extract privacy key from params, default to auth password
     	String privKey = pass;
-    	for (String param : params) {
-    		String[] value = param.split("=");
-    		if (value.length == 2 && value[0].equalsIgnoreCase("privKey")) {
-    			privKey = value[1];
-    			break;
+    	if (params != null) {
+    		for (String param : params) {
+    			if (param == null) {
+    				continue;
+    			}
+    			int eq = param.indexOf('=');
+    			if (eq > 0 && param.substring(0, eq).trim().equalsIgnoreCase("privKey")) {
+    				privKey = param.substring(eq + 1);
+    				break;
+    			}
     		}
     	}
     	
@@ -290,7 +350,11 @@ public class NorcalSNMPDriverModule {
             snmp = new Snmp(transport);
             snmp.listen();
 
-            TreeUtils treeUtils = new TreeUtils(snmp, new DefaultPDUFactory());
+            // SNMPv1 does not support GETBULK; TreeUtils default factory uses GETBULK for v2c.
+            DefaultPDUFactory pduFactory = target.getVersion() == SnmpConstants.version1
+                    ? new DefaultPDUFactory(PDU.GETNEXT)
+                    : new DefaultPDUFactory();
+            TreeUtils treeUtils = new TreeUtils(snmp, pduFactory);
             List<TreeEvent> events = treeUtils.getSubtree(target, startOID);
 
             for (TreeEvent event : events) {
@@ -320,68 +384,75 @@ public class NorcalSNMPDriverModule {
         return results.toArray(new String[0]);
     }  
     
+    private static void registerAuthProtocolsForV3(OID authProt) {
+        if (authProt != null && authProt.equals(AuthMD5.ID)) {
+            SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthMD5());
+        } else if (authProt != null && authProt.equals(AuthSHA.ID)) {
+            SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
+        } else {
+            SecurityProtocols.getInstance().addDefaultProtocols();
+        }
+    }
+
+    private static USM createAndRegisterUsm(UsmUser usr, String username, OID authProt) {
+        registerAuthProtocolsForV3(authProt);
+        byte[] localEngineID = MPv3.createLocalEngineID();
+        USM usm = new USM(SecurityProtocols.getInstance(), new OctetString(localEngineID), 0);
+        usm.addUser(new OctetString(username), usr);
+        SecurityModels.getInstance().addSecurityModel(usm);
+        return usm;
+    }
+
+    private static void unregisterUsm(USM usm) {
+        if (usm != null) {
+            SecurityModels.getInstance().removeSecurityModel(usm.getID());
+        }
+    }
+
     private static String[] walkV3(UserTarget target, OID startOID, UsmUser usr, String username, OID authProt) {
-        ArrayList<String> results = new ArrayList<>();
-        Snmp snmp = null;
+        synchronized (SNMP_V3_LOCK) {
+            ArrayList<String> results = new ArrayList<>();
+            Snmp snmp = null;
+            USM usm = null;
 
-        try {
-            // Add the specific auth protocol if needed (original approach that worked)
-            if (authProt != null && authProt.equals(AuthMD5.ID)) {
-            	SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthMD5());
-            } else if (authProt != null && authProt.equals(AuthSHA.ID)) {
-            	SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
-            } else {
-            	// For SHA-2 variants, add default protocols
-            	SecurityProtocols.getInstance().addDefaultProtocols();
-            }
-            
-            // Create transport and SNMP instance
-            DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
-            snmp = new Snmp(transport);
-            
-            // Create USM with local engine ID
-            byte[] localEngineID = MPv3.createLocalEngineID();
-            USM usm = new USM(SecurityProtocols.getInstance(), new OctetString(localEngineID), 0);
-            
-            // Add user WITHOUT engine ID - works with any engine
-            usm.addUser(new OctetString(username), usr);
-            
-            // Add security model (don't remove existing - that breaks authNoPriv)
-            SecurityModels.getInstance().addSecurityModel(usm);
-            
-            // Start listening
-            snmp.listen();
+            try {
+                DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
+                snmp = new Snmp(transport);
+                usm = createAndRegisterUsm(usr, username, authProt);
+                snmp.listen();
 
-            TreeUtils treeUtils = new TreeUtils(snmp, new DefaultPDUFactory(PDU.GETNEXT));
-            List<TreeEvent> events = treeUtils.getSubtree(target, startOID);
+                TreeUtils treeUtils = new TreeUtils(snmp, new DefaultPDUFactory(PDU.GETNEXT));
+                List<TreeEvent> events = treeUtils.getSubtree(target, startOID);
 
-            for (TreeEvent event : events) {
-                if (event != null) {
-                    if (event.isError()) {
-                        results.add("[WV02] Error: " + event.getErrorMessage());
-                    } else {
-                        VariableBinding[] varBindings = event.getVariableBindings();
-                        if (varBindings != null) {
-                            for (VariableBinding varBinding : varBindings) {
-                                results.add(varBinding.toString());
+                for (TreeEvent event : events) {
+                    if (event != null) {
+                        if (event.isError()) {
+                            results.add("[WV02] Error: " + event.getErrorMessage());
+                        } else {
+                            VariableBinding[] varBindings = event.getVariableBindings();
+                            if (varBindings != null) {
+                                for (VariableBinding varBinding : varBindings) {
+                                    results.add(varBinding.toString());
+                                }
                             }
                         }
                     }
                 }
-            }
-        } catch (Exception e) {
-            results.add("[WV03] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
-        } finally {
-            if (snmp != null) {
-                try {
-                    snmp.close();
-                } catch (IOException ignored) {
+            } catch (Exception e) {
+                results.add("[WV03] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            } finally {
+                if (snmp != null) {
+                    try {
+                        snmp.close();
+                    } catch (IOException ignored) {
+                    }
                 }
+                unregisterUsm(usm);
             }
-        }
 
-        return results.toArray(new String[0]);
-    }     
+            return results.toArray(new String[0]);
+        }
+    }
 
     private static String[] get(PDU pdu, CommunityTarget target) {
         Snmp snmp = null;
@@ -392,10 +463,20 @@ public class NorcalSNMPDriverModule {
             snmp.listen();
             pdu.setType(PDU.GET);
             ResponseEvent respEvent = snmp.send(pdu, target);
+            if (respEvent == null) {
+                res.add("[G001] Error: No response event from SNMP stack");
+                return res.toArray(new String[0]);
+            }
             PDU response = respEvent.getResponse();
 
             if (response == null) {
-                res.add("[G001] Error: No Response from device");
+                if (respEvent.getError() != null) {
+                    res.add("[G001] Error: " + respEvent.getError().getMessage());
+                } else {
+                    res.add("[G001] Error: No response from device (timeout or unreachable)");
+                }
+            } else if (response.getErrorStatus() != PDU.noError) {
+                res.add("[G003] Error: " + response.getErrorStatusText() + " at index " + response.getErrorIndex());
             } else {
                 for (int i = 0; i < response.size(); i++) {
                     VariableBinding vb = response.get(i);
@@ -417,75 +498,60 @@ public class NorcalSNMPDriverModule {
     }
     
     private static String[] getV3(PDU pdu, UserTarget target, UsmUser usr, String username, OID authProt) {
-    	ArrayList<String> res = new ArrayList<>();
-    	Snmp snmp = null;
-    	
-    	try {
-    		// Add the specific auth protocol if needed (original approach that worked)
-    		if (authProt != null && authProt.equals(AuthMD5.ID)) {
-    			SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthMD5());
-    		} else if (authProt != null && authProt.equals(AuthSHA.ID)) {
-    			SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthSHA());
-    		} else {
-    			// For SHA-2 variants, add default protocols
-    			SecurityProtocols.getInstance().addDefaultProtocols();
-    		}
-    		
-    		// Create transport and SNMP instance
-    		DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
-    		snmp = new Snmp(transport);
-    		
-    		// Create USM with local engine ID
-    		byte[] localEngineID = MPv3.createLocalEngineID();
-    		USM usm = new USM(SecurityProtocols.getInstance(), new OctetString(localEngineID), 0);
-    		
-    		// Add user WITHOUT engine ID - works with any engine
-    		usm.addUser(new OctetString(username), usr);
-    		
-    		// Add security model (don't remove existing - that breaks authNoPriv)
-    		SecurityModels.getInstance().addSecurityModel(usm);
-    		
-    		// Start listening
-    		snmp.listen();
-    		
-    		// Build debug info
-    		StringBuilder debug = new StringBuilder();
-    		debug.append("Target: ").append(target.getAddress());
-    		debug.append(", Timeout: ").append(target.getTimeout());
-    		debug.append(", SecLevel: ").append(target.getSecurityLevel());
-    		debug.append(", User: ").append(username);
-    		
-    		pdu.setType(PDU.GET);
-    		
-    		ResponseEvent respEvent = snmp.send(pdu, target);
-    		PDU response = respEvent.getResponse();
-    		
-    		if (response == null) {
-    			if (respEvent.getError() != null) {
-    				res.add("[GV01] Error: " + respEvent.getError().getMessage() + " [" + debug + "]");
-    			} else {
-    				res.add("[GV02] Error: No Response [" + debug + "]");
-    			}
-    		} else if (response.getErrorStatus() != PDU.noError) {
-    			res.add("[GV03] Error: " + response.getErrorStatusText() + " at index " + response.getErrorIndex());
-    		} else {
-    			for (int i = 0; i < response.size(); i++) {
-    				VariableBinding vb = response.get(i);
-    				res.add(String.valueOf(vb.getVariable()));
-    			}
-    		}
-    		return res.toArray(new String[0]);
-    	} catch (Exception e) {
-    		res.add("[GV04] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
-    		return res.toArray(new String[0]);
-    	} finally {
-    		if (snmp != null) {
-    			try {
-    				snmp.close();
-    			} catch (IOException ignored) {
-    			}
-    		}
-    	}
+        synchronized (SNMP_V3_LOCK) {
+            ArrayList<String> res = new ArrayList<>();
+            Snmp snmp = null;
+            USM usm = null;
+
+            try {
+                DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
+                snmp = new Snmp(transport);
+                usm = createAndRegisterUsm(usr, username, authProt);
+                snmp.listen();
+
+                StringBuilder debug = new StringBuilder();
+                debug.append("Target: ").append(target.getAddress());
+                debug.append(", Timeout: ").append(target.getTimeout());
+                debug.append(", SecLevel: ").append(target.getSecurityLevel());
+                debug.append(", User: ").append(username);
+
+                pdu.setType(PDU.GET);
+
+                ResponseEvent respEvent = snmp.send(pdu, target);
+                if (respEvent == null) {
+                    res.add("[GV05] Error: No response event from SNMP stack [" + debug + "]");
+                    return res.toArray(new String[0]);
+                }
+                PDU response = respEvent.getResponse();
+
+                if (response == null) {
+                    if (respEvent.getError() != null) {
+                        res.add("[GV01] Error: " + respEvent.getError().getMessage() + " [" + debug + "]");
+                    } else {
+                        res.add("[GV02] Error: No Response [" + debug + "]");
+                    }
+                } else if (response.getErrorStatus() != PDU.noError) {
+                    res.add("[GV03] Error: " + response.getErrorStatusText() + " at index " + response.getErrorIndex());
+                } else {
+                    for (int i = 0; i < response.size(); i++) {
+                        VariableBinding vb = response.get(i);
+                        res.add(String.valueOf(vb.getVariable()));
+                    }
+                }
+                return res.toArray(new String[0]);
+            } catch (Exception e) {
+                res.add("[GV04] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                return res.toArray(new String[0]);
+            } finally {
+                if (snmp != null) {
+                    try {
+                        snmp.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                unregisterUsm(usm);
+            }
+        }
     }
 
 }
