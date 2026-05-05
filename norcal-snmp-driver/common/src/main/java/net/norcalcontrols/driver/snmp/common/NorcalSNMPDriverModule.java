@@ -11,6 +11,7 @@ package net.norcalcontrols.driver.snmp.common;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.snmp4j.CommunityTarget;
 import org.snmp4j.UserTarget;
@@ -26,7 +27,6 @@ import org.snmp4j.security.AuthHMAC256SHA384;
 import org.snmp4j.security.AuthHMAC384SHA512;
 import org.snmp4j.security.AuthMD5;
 import org.snmp4j.security.AuthSHA;
-import org.snmp4j.security.AuthSHA2;
 import org.snmp4j.security.PrivAES128;
 import org.snmp4j.security.PrivAES192;
 import org.snmp4j.security.PrivAES256;
@@ -54,11 +54,75 @@ public class NorcalSNMPDriverModule {
     public static final int DEFAULT_RETRY = 1;
     public static final int DEFAULT_AUTH_LVL = SecurityLevel.NOAUTH_NOPRIV;
 
+    /** Shared UDP + Snmp for v1/v2c: avoids per-tag listen()/close() overhead. */
+    private static final Object COMMUNITY_INIT_LOCK = new Object();
+    private static volatile CommunitySnmpHolder communityHolder;
+
     /**
-     * SNMP4j registers v3 security state in process-wide singletons. Concurrent script calls
-     * without coordination leak USM entries and corrupt shared protocol tables; serialize v3.
+     * Striped locks so concurrent v3 calls to different agents do not serialize globally,
+     * while same (host, user, credentials) stays ordered for USM safety.
      */
-    private static final Object SNMP_V3_LOCK = new Object();
+    private static final int V3_STRIPE_COUNT = 64;
+    private static final Object[] V3_STRIPES = new Object[V3_STRIPE_COUNT];
+
+    static {
+        for (int i = 0; i < V3_STRIPE_COUNT; i++) {
+            V3_STRIPES[i] = new Object();
+        }
+    }
+
+    private static final class CommunitySnmpHolder {
+        final Snmp snmp;
+
+        CommunitySnmpHolder() throws IOException {
+            DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
+            snmp = new Snmp(transport);
+            snmp.listen();
+        }
+
+        void close() {
+            try {
+                snmp.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Releases the shared community SNMP session. Invoke from the gateway module {@code shutdown()}
+     * so reload/uninstall does not leave a listening UDP socket behind.
+     */
+    public static void shutdown() {
+        synchronized (COMMUNITY_INIT_LOCK) {
+            if (communityHolder != null) {
+                communityHolder.close();
+                communityHolder = null;
+            }
+        }
+    }
+
+    private static Snmp communitySnmp() throws IOException {
+        CommunitySnmpHolder h = communityHolder;
+        if (h != null) {
+            return h.snmp;
+        }
+        synchronized (COMMUNITY_INIT_LOCK) {
+            if (communityHolder == null) {
+                communityHolder = new CommunitySnmpHolder();
+            }
+            return communityHolder.snmp;
+        }
+    }
+
+    private static Object v3Stripe(String ip, int port, String user, String credentialFingerprint) {
+        int h = Objects.hash(ip, port, user, credentialFingerprint);
+        return V3_STRIPES[(h & Integer.MAX_VALUE) % V3_STRIPE_COUNT];
+    }
+
+    private static String v3CredentialFingerprint(
+            int authLevel, String pass, String privKey, int authProtCode, int privProtCode) {
+        return authLevel + "\0" + pass + "\0" + privKey + "\0" + authProtCode + "\0" + privProtCode;
+    }
 
     private static void applyCommunityTargetOptions(CommunityTarget target, String[] params) {
         if (params == null) {
@@ -86,7 +150,6 @@ public class NorcalSNMPDriverModule {
                     target.setRetries(Integer.parseInt(val));
                 }
             } catch (NumberFormatException ignored) {
-                // Ignore malformed numeric options so the request still uses defaults.
             }
         }
     }
@@ -132,260 +195,117 @@ public class NorcalSNMPDriverModule {
         applyCommunityTargetOptions(target, params);
         return target;
     }
-    
-    public static UserTarget createDefault(String ip, int authLevel, String user, String pass, int port, String[] params) {
-    	Address address = GenericAddress.parse(DEFAULT_PROTOCOL + ":" + ip + "/" + port);
-    	UserTarget target = new UserTarget();
-    	target.setAddress(address);
-    	target.setVersion(SnmpConstants.version3);
-    	target.setTimeout(DEFAULT_TIMEOUT);
-    	target.setRetries(DEFAULT_RETRY);
-    	target.setSecurityLevel(getAuthLevel(authLevel));
-    	target.setSecurityName(new OctetString(user));
 
-    	applyUserTargetOptions(target, params);
-    	return target;
+    public static UserTarget createDefault(String ip, int authLevel, String user, String pass, int port, String[] params) {
+        Address address = GenericAddress.parse(DEFAULT_PROTOCOL + ":" + ip + "/" + port);
+        UserTarget target = new UserTarget();
+        target.setAddress(address);
+        target.setVersion(SnmpConstants.version3);
+        target.setTimeout(DEFAULT_TIMEOUT);
+        target.setRetries(DEFAULT_RETRY);
+        target.setSecurityLevel(getAuthLevel(authLevel));
+        target.setSecurityName(new OctetString(user));
+
+        applyUserTargetOptions(target, params);
+        return target;
     }
-    
 
     private static int getVersion(String s) {
-        if(s.equalsIgnoreCase("1")){
+        if (s.equalsIgnoreCase("1")) {
             return SnmpConstants.version1;
-        } else if (s.equalsIgnoreCase("3")){
+        } else if (s.equalsIgnoreCase("3")) {
             return SnmpConstants.version3;
         } else {
             return SnmpConstants.version2c;
         }
-
     }
-    
+
     private static int getAuthLevel(int s) {
-    	if(s == 3) {
-    		return SecurityLevel.AUTH_PRIV;
-    	} else if (s == 2) {
-    		return SecurityLevel.AUTH_NOPRIV;
-    	} else {
-    		return SecurityLevel.NOAUTH_NOPRIV;
-    	}
-    }   
-    
-    private static OID getAuthProtocol(int i) {
-    	switch (i) {
-	    	case 1: 
-	    		return AuthMD5.ID;
-	    	case 2:
-	    		return AuthSHA.ID;
-	    	case 3:
-	    		return AuthHMAC128SHA224.ID;
-	    	case 4:
-	    		return AuthHMAC192SHA256.ID;
-	    	case 5:
-	    		return AuthHMAC256SHA384.ID;
-	    	case 6:
-	    		return AuthHMAC384SHA512.ID;
-	    	default:
-	    		return AuthHMAC384SHA512.ID;
-    	}
-    }
-    
-    private static OID getPrivProtocol(int i) {
-    	switch(i) {
-	    	case 1:
-	    		return PrivDES.ID;
-	    	case 2:
-	    		return PrivAES128.ID;
-	    	case 3:
-	    		return PrivAES192.ID;
-	    	case 4:
-	    		return PrivAES256.ID;
-	    	default:
-	    		return PrivAES256.ID;
-    	}
-    }
-    
-    public static String[] snmpWalk(String ip, int port, String startOID, String[] params) {
-        if (params == null || params.length == 0 || params[0] == null) {
-            return new String[] { "[W000] Error: community string required as first parameter" };
-        }
-        String community = params[0];
-        CommunityTarget target = createDefault(ip, community, port, params);
-        return walk(target, new OID(startOID));
-    }
-    
-    public static String[] snmpWalkV3(String ip, int port, String startOID, int authLevel, String user, String pass, int authProt, int privProt, String[] params) {
-        UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
-        OID authProtocol = getAuthProtocol(authProt);
-        OID privProtocol = getPrivProtocol(privProt);
-        
-        // Extract privacy key from params, default to auth password
-        String privKey = pass;
-        if (params != null) {
-            for (String param : params) {
-                if (param == null) {
-                    continue;
-                }
-                int eq = param.indexOf('=');
-                if (eq > 0 && param.substring(0, eq).trim().equalsIgnoreCase("privKey")) {
-                    privKey = param.substring(eq + 1);
-                    break;
-                }
-            }
-        }
-        
-        // Create UsmUser based on security level
-        UsmUser usr;
-        if (authLevel == 3) {
-        	// AUTH_PRIV: both authentication and privacy
-        	usr = new UsmUser(
-        			new OctetString(user),
-        			authProtocol,
-        			new OctetString(pass),
-        			privProtocol,
-        			new OctetString(privKey)
-        	);
-        } else if (authLevel == 2) {
-        	// AUTH_NOPRIV: authentication only, no privacy
-        	usr = new UsmUser(
-        			new OctetString(user),
-        			authProtocol,
-        			new OctetString(pass),
-        			null,
-        			null
-        	);
+        if (s == 3) {
+            return SecurityLevel.AUTH_PRIV;
+        } else if (s == 2) {
+            return SecurityLevel.AUTH_NOPRIV;
         } else {
-        	// NOAUTH_NOPRIV: no authentication, no privacy
-        	usr = new UsmUser(
-        			new OctetString(user),
-        			null,
-        			null,
-        			null,
-        			null
-        	);
+            return SecurityLevel.NOAUTH_NOPRIV;
         }
-        return walkV3(target, new OID(startOID), usr, user, authProtocol);
     }
 
-    public static String[] snmpGet(String ip, int port, String[] oids, String[] params) {
-        if (params == null || params.length == 0 || params[0] == null) {
-            return new String[] { "[G000] Error: community string required as first parameter" };
+    private static OID getAuthProtocol(int i) {
+        switch (i) {
+            case 1:
+                return AuthMD5.ID;
+            case 2:
+                return AuthSHA.ID;
+            case 3:
+                return AuthHMAC128SHA224.ID;
+            case 4:
+                return AuthHMAC192SHA256.ID;
+            case 5:
+                return AuthHMAC256SHA384.ID;
+            case 6:
+                return AuthHMAC384SHA512.ID;
+            default:
+                return AuthHMAC384SHA512.ID;
         }
-    	String community = params[0];
-        CommunityTarget target = createDefault(ip, community, port, params);
-        PDU pdu = new PDU();
-        pdu.addAll(getBindings(oids));
-        return get(pdu, target);
-    }
-    
-    public static String[] snmpGetV3(String ip, int port, String[] oids, int authLevel, String user, String pass, int authProt, int privProt, String[] params) {
-    	UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
-    	OID authProtocol = getAuthProtocol(authProt);
-    	OID privProtocol = getPrivProtocol(privProt);
-    	
-    	// Extract privacy key from params, default to auth password
-    	String privKey = pass;
-    	if (params != null) {
-    		for (String param : params) {
-    			if (param == null) {
-    				continue;
-    			}
-    			int eq = param.indexOf('=');
-    			if (eq > 0 && param.substring(0, eq).trim().equalsIgnoreCase("privKey")) {
-    				privKey = param.substring(eq + 1);
-    				break;
-    			}
-    		}
-    	}
-    	
-    	PDU pdu = new ScopedPDU();
-    	pdu.addAll(getBindings(oids));
-    	
-    	// Create UsmUser based on security level
-    	UsmUser usr;
-    	if (authLevel == 3) {
-    		// AUTH_PRIV: both authentication and privacy
-    		usr = new UsmUser(
-    				new OctetString(user),
-    				authProtocol,
-    				new OctetString(pass),
-    				privProtocol,
-    				new OctetString(privKey)
-    		);
-    	} else if (authLevel == 2) {
-    		// AUTH_NOPRIV: authentication only, no privacy
-    		usr = new UsmUser(
-    				new OctetString(user),
-    				authProtocol,
-    				new OctetString(pass),
-    				null,
-    				null
-    		);
-    	} else {
-    		// NOAUTH_NOPRIV: no authentication, no privacy
-    		usr = new UsmUser(
-    				new OctetString(user),
-    				null,
-    				null,
-    				null,
-    				null
-    		);
-    	}
-    	return getV3(pdu, target, usr, user, authProtocol);
     }
 
-    private static VariableBinding[] getBindings(String[] oids) {
-        ArrayList<VariableBinding> vars = new ArrayList<>();
-        for (String oid : oids) {
-            vars.add(new VariableBinding(new OID(oid)));
+    private static OID getPrivProtocol(int i) {
+        switch (i) {
+            case 1:
+                return PrivDES.ID;
+            case 2:
+                return PrivAES128.ID;
+            case 3:
+                return PrivAES192.ID;
+            case 4:
+                return PrivAES256.ID;
+            default:
+                return PrivAES256.ID;
         }
-
-        return vars.toArray(new VariableBinding[0]);
     }
-    
-    private static String[] walk(CommunityTarget target, OID startOID) {
-        ArrayList<String> results = new ArrayList<>();
-        Snmp snmp = null;
 
-        try {
-            DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
-            snmp = new Snmp(transport);
-            snmp.listen();
-
-            // SNMPv1 does not support GETBULK; TreeUtils default factory uses GETBULK for v2c.
-            DefaultPDUFactory pduFactory = target.getVersion() == SnmpConstants.version1
-                    ? new DefaultPDUFactory(PDU.GETNEXT)
-                    : new DefaultPDUFactory();
-            TreeUtils treeUtils = new TreeUtils(snmp, pduFactory);
-            List<TreeEvent> events = treeUtils.getSubtree(target, startOID);
-
-            for (TreeEvent event : events) {
-                if (event != null) {
-                    if (event.isError()) {
-                    	results.add("[W001] Error: " + event.getErrorMessage());
-                    } else {
-                        VariableBinding[] varBindings = event.getVariableBindings();
-                        if (varBindings != null) {
-                            for (VariableBinding varBinding : varBindings) {
-                                results.add(varBinding.toString());
-                            }
-                        }
-                    }
-                }
+    private static String extractPrivKey(String[] params, String defaultPrivKey) {
+        if (params == null) {
+            return defaultPrivKey;
+        }
+        for (String param : params) {
+            if (param == null) {
+                continue;
             }
-        } catch (IOException e) {
-            results.add("[W002] Error: IOException: " + e.getMessage());
-        } finally {
-            if (snmp != null) {
-                try {
-                    snmp.close();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+            int eq = param.indexOf('=');
+            if (eq > 0 && param.substring(0, eq).trim().equalsIgnoreCase("privKey")) {
+                return param.substring(eq + 1);
             }
         }
+        return defaultPrivKey;
+    }
 
-        return results.toArray(new String[0]);
-    }  
-    
+    private static UsmUser buildUsmUser(
+            String user,
+            int authLevel,
+            String pass,
+            String privKey,
+            OID authProtocol,
+            OID privProtocol) {
+        if (authLevel == 3) {
+            return new UsmUser(
+                    new OctetString(user),
+                    authProtocol,
+                    new OctetString(pass),
+                    privProtocol,
+                    new OctetString(privKey));
+        }
+        if (authLevel == 2) {
+            return new UsmUser(
+                    new OctetString(user),
+                    authProtocol,
+                    new OctetString(pass),
+                    null,
+                    null);
+        }
+        return new UsmUser(new OctetString(user), null, null, null, null);
+    }
+
     private static void registerAuthProtocolsForV3(OID authProt) {
         if (authProt != null && authProt.equals(AuthMD5.ID)) {
             SecurityProtocols.getInstance().addAuthenticationProtocol(new AuthMD5());
@@ -411,8 +331,117 @@ public class NorcalSNMPDriverModule {
         }
     }
 
-    private static String[] walkV3(UserTarget target, OID startOID, UsmUser usr, String username, OID authProt) {
-        synchronized (SNMP_V3_LOCK) {
+    public static String[] snmpWalk(String ip, int port, String startOID, String[] params) {
+        if (params == null || params.length == 0 || params[0] == null) {
+            return new String[] { "[W000] Error: community string required as first parameter" };
+        }
+        String community = params[0];
+        CommunityTarget target = createDefault(ip, community, port, params);
+        return walk(target, new OID(startOID));
+    }
+
+    public static String[] snmpWalkV3(
+            String ip,
+            int port,
+            String startOID,
+            int authLevel,
+            String user,
+            String pass,
+            int authProt,
+            int privProt,
+            String[] params) {
+        UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
+        OID authProtocol = getAuthProtocol(authProt);
+        OID privProtocol = getPrivProtocol(privProt);
+        String privKey = extractPrivKey(params, pass);
+        UsmUser usr = buildUsmUser(user, authLevel, pass, privKey, authProtocol, privProtocol);
+        String credFp = v3CredentialFingerprint(authLevel, pass, privKey, authProt, privProt);
+        return walkV3(target, new OID(startOID), usr, user, authProtocol, ip, port, credFp);
+    }
+
+    public static String[] snmpGet(String ip, int port, String[] oids, String[] params) {
+        if (params == null || params.length == 0 || params[0] == null) {
+            return new String[] { "[G000] Error: community string required as first parameter" };
+        }
+        String community = params[0];
+        CommunityTarget target = createDefault(ip, community, port, params);
+        PDU pdu = new PDU();
+        pdu.addAll(getBindings(oids));
+        return get(pdu, target);
+    }
+
+    public static String[] snmpGetV3(
+            String ip,
+            int port,
+            String[] oids,
+            int authLevel,
+            String user,
+            String pass,
+            int authProt,
+            int privProt,
+            String[] params) {
+        UserTarget target = createDefault(ip, authLevel, user, pass, port, params);
+        OID authProtocol = getAuthProtocol(authProt);
+        OID privProtocol = getPrivProtocol(privProt);
+        String privKey = extractPrivKey(params, pass);
+        PDU pdu = new ScopedPDU();
+        pdu.addAll(getBindings(oids));
+        UsmUser usr = buildUsmUser(user, authLevel, pass, privKey, authProtocol, privProtocol);
+        String credFp = v3CredentialFingerprint(authLevel, pass, privKey, authProt, privProt);
+        return getV3(pdu, target, usr, user, authProtocol, ip, port, credFp);
+    }
+
+    private static VariableBinding[] getBindings(String[] oids) {
+        ArrayList<VariableBinding> vars = new ArrayList<>();
+        for (String oid : oids) {
+            vars.add(new VariableBinding(new OID(oid)));
+        }
+        return vars.toArray(new VariableBinding[0]);
+    }
+
+    private static String[] walk(CommunityTarget target, OID startOID) {
+        ArrayList<String> results = new ArrayList<>();
+        try {
+            Snmp snmp = communitySnmp();
+            DefaultPDUFactory pduFactory = target.getVersion() == SnmpConstants.version1
+                    ? new DefaultPDUFactory(PDU.GETNEXT)
+                    : new DefaultPDUFactory();
+            TreeUtils treeUtils = new TreeUtils(snmp, pduFactory);
+            List<TreeEvent> events = treeUtils.getSubtree(target, startOID);
+
+            for (TreeEvent event : events) {
+                if (event != null) {
+                    if (event.isError()) {
+                        results.add("[W001] Error: " + event.getErrorMessage());
+                    } else {
+                        VariableBinding[] varBindings = event.getVariableBindings();
+                        if (varBindings != null) {
+                            for (VariableBinding varBinding : varBindings) {
+                                results.add(varBinding.toString());
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            results.add("[W002] Error: IOException: " + e.getMessage());
+        } catch (Exception e) {
+            results.add("[W002] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+
+        return results.toArray(new String[0]);
+    }
+
+    private static String[] walkV3(
+            UserTarget target,
+            OID startOID,
+            UsmUser usr,
+            String username,
+            OID authProt,
+            String ip,
+            int port,
+            String credFingerprint) {
+        synchronized (v3Stripe(ip, port, username, credFingerprint)) {
             ArrayList<String> results = new ArrayList<>();
             Snmp snmp = null;
             USM usm = null;
@@ -457,12 +486,9 @@ public class NorcalSNMPDriverModule {
     }
 
     private static String[] get(PDU pdu, CommunityTarget target) {
-        Snmp snmp = null;
         ArrayList<String> res = new ArrayList<>();
         try {
-            DefaultUdpTransportMapping transport = new DefaultUdpTransportMapping();
-            snmp = new Snmp(transport);
-            snmp.listen();
+            Snmp snmp = communitySnmp();
             pdu.setType(PDU.GET);
             ResponseEvent respEvent = snmp.send(pdu, target);
             if (respEvent == null) {
@@ -489,18 +515,19 @@ public class NorcalSNMPDriverModule {
         } catch (Exception e) {
             res.add("[G002] Error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             return res.toArray(new String[0]);
-        } finally {
-            if (snmp != null) {
-                try {
-                    snmp.close();
-                } catch (IOException ignored) {
-                }
-            }
         }
     }
-    
-    private static String[] getV3(PDU pdu, UserTarget target, UsmUser usr, String username, OID authProt) {
-        synchronized (SNMP_V3_LOCK) {
+
+    private static String[] getV3(
+            PDU pdu,
+            UserTarget target,
+            UsmUser usr,
+            String username,
+            OID authProt,
+            String ip,
+            int port,
+            String credFingerprint) {
+        synchronized (v3Stripe(ip, port, username, credFingerprint)) {
             ArrayList<String> res = new ArrayList<>();
             Snmp snmp = null;
             USM usm = null;
@@ -555,5 +582,4 @@ public class NorcalSNMPDriverModule {
             }
         }
     }
-
 }
